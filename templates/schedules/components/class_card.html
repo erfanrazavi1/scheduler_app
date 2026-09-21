@@ -1,0 +1,50 @@
+{% load schedule_tags %}
+<div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition
+            hover:border-slate-300 hover:shadow-md
+            dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
+     style="border-inline-start-width: 4px; border-inline-start-color: {{ session.color }};"
+     data-class-item
+     data-title="{{ session.title }}"
+     data-day-name="{{ session.day_name_fa }}"
+     data-day-value="{{ session.day }}"
+     data-time="{{ session.time_range|fa_digits }}"
+     data-start-time="{{ session.start_time|time:'H:i' }}"
+     data-end-time="{{ session.end_time|time:'H:i' }}"
+     data-instructor="{{ session.instructor }}"
+     data-location="{{ session.location }}"
+     data-description="{{ session.description }}"
+     data-color="{{ session.color }}"
+     data-edit-url="{% url 'schedules:class_edit' session.pk %}"
+     data-delete-url="{% url 'schedules:class_delete' session.pk %}">
+
+  <button type="button" data-class-card
+          class="block w-full p-3 text-start focus-visible:outline-none focus-visible:ring-2
+                 focus-visible:ring-blue-500"
+          aria-label="جزئیات کلاس {{ session.title }}">
+    <p class="text-xs font-medium tabular-nums text-slate-500 dark:text-slate-400">
+      {{ session.time_range|fa_digits }}
+    </p>
+    <p class="mt-1.5 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100" dir="auto">
+      {{ session.title }}
+    </p>
+    {% if session.instructor %}
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400" dir="auto">
+        {{ session.instructor }}
+      </p>
+    {% endif %}
+    {% if session.location %}
+      <p class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400" dir="auto">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+          <path d="M12 21s-7-5.3-7-11a7 7 0 1 1 14 0c0 5.7-7 11-7 11z"></path>
+          <circle cx="12" cy="10" r="2.5"></circle>
+        </svg>
+        {{ session.location }}
+      </p>
+    {% endif %}
+  </button>
+
+  <div class="border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
+    {% include "schedules/components/class_actions.html" %}
+  </div>
+</div>

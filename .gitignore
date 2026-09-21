@@ -127,6 +127,14 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# Node / Tailwind (app.css is generated during the Docker build)
+node_modules/
+/static/css/app.css
+
+# Django collected static
+/staticfiles/
+/media/
+
 # Environments
 .env
 .venv
