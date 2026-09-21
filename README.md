@@ -22,7 +22,9 @@ during the image build.
 docker compose up --build
 ```
 
-Then open http://localhost:8000.
+Then open http://localhost:8000. This automatically loads
+`docker-compose.override.yml`, which enables `DEBUG` and publishes port 8000
+for local development.
 
 ## Stop
 
@@ -36,16 +38,24 @@ intentionally want to delete all data.
 
 ## Environment
 
-Optional: copy `.env.example` to `.env` and adjust values. Sensible development
-defaults are used when `.env` is absent.
+Optional for local development: copy `.env.example` to `.env` and adjust
+values. Sensible development defaults are used when `.env` is absent, and the
+development override always forces `DJANGO_DEBUG=1` locally.
 
 | Variable | Purpose |
 |----------|---------|
-| `DJANGO_SECRET_KEY` | Django secret key |
-| `DJANGO_DEBUG` | `1` for development, `0` for production |
+| `DJANGO_SECRET_KEY` | Django secret key (**required when `DEBUG=False`**) |
+| `DJANGO_DEBUG` | `1` for development, `0` for production (default `0`) |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated allowed hosts |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Comma-separated HTTPS origins allowed for POST (e.g. `https://scheduler.hesabinoo.ir`) |
+| `DJANGO_TIME_ZONE` | Server time zone (default `Asia/Tehran`) |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | Database credentials |
-| `POSTGRES_HOST` / `POSTGRES_PORT` | Database address |
+| `POSTGRES_HOST` / `POSTGRES_PORT` | Database address (default `db:5432`) |
+| `GUNICORN_WORKERS` / `GUNICORN_TIMEOUT` | Optional Gunicorn tuning (default `1` / `30`) |
+
+HTTPS hardening (`SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
+`SECURE_HSTS_SECONDS`, `SECURE_SSL_REDIRECT`, …) is environment-driven and
+defaults to safe production values; see `.env.example` for the overrides.
 
 ## Migrations
 
@@ -104,21 +114,92 @@ schedules/              App: models, forms, admin, views, tests, seed_demo
 templates/              base.html + schedules/ templates and components
 static/                 Tailwind source (src/), compiled CSS, and app.js
 Dockerfile              Multi-stage: Tailwind build + Python runtime
-docker-compose.yml      web + db services
-docker-compose.prod.yml Optional production override (Gunicorn, WhiteNoise)
+docker-compose.yml      Base: web + db services
+docker-compose.override.yml  Local development (DEBUG + port 8000)
+docker-compose.prod.yml Production (Gunicorn, web-edge, no host port)
 ```
 
 ## Production notes
 
-Build the production stack with Gunicorn:
+Production is intended to run as an independent application on the same VPS:
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+```text
+Cloudflare
+    ↓
+central nginx
+    ↓
+web-edge network
+    ↓
+scheduler-web:8000
+    ↓
+PostgreSQL (compose-internal only)
 ```
 
-Set a real `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS` and `DJANGO_DEBUG=0`.
-Static files are collected automatically and served by WhiteNoise, so no
-separate web server is required.
+### Run production
+
+1. Create the environment file and fill in real values:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   At minimum set `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS=scheduler.hesabinoo.ir`,
+   `DJANGO_CSRF_TRUSTED_ORIGINS=https://scheduler.hesabinoo.ir` and
+   `POSTGRES_PASSWORD`.
+
+2. Make sure the external Docker network used by the central proxy exists:
+
+   ```bash
+   docker network create web-edge   # once, on the VPS
+   ```
+
+3. Start the production stack (base + prod files only — the development
+   override is intentionally excluded):
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+   ```
+
+### What the production stack does
+
+- Runs Gunicorn (`config.wsgi:application`) on port **8000**.
+- Uses the `scheduler-web` network alias on the external `web-edge` network, so
+  central nginx can route to `scheduler-web:8000`.
+- **Does not publish port 8000 to the host** (only the development override
+  does, for `http://localhost:8000`).
+- Keeps PostgreSQL on the compose-internal network only; it is never published
+  and never attached to `web-edge`.
+- Runs migrations automatically on start and collects static files when
+  `DEBUG=False`; static assets are served by WhiteNoise, so no separate web
+  server is required.
+- Keeps the database in the named `postgres_data` volume.
+
+### Reverse proxy requirements
+
+The proxy must forward `X-Forwarded-Proto` (`https`) for TLS-terminated
+requests, because `SECURE_PROXY_SSL_HEADER` is set. This prevents redirect
+loops. `SECURE_SSL_REDIRECT` is off by default and can be enabled once the
+proxy is verified to send that header.
+
+### Health check
+
+`GET /healthz/` returns `{"status": "ok"}` and performs no database access.
+Docker's healthcheck for the `web` service uses it.
+
+## Security consideration (anonymous access)
+
+> Authentication is intentionally not implemented yet. The current application allows anonymous creation, editing, and deletion of schedule entries. Authentication/authorization should be considered before exposing the application to an untrusted public audience.
+
+CSRF protection, server-side form validation and POST-only writes are in
+place, but any anonymous visitor can still modify the schedule. Treat this as a
+known risk until authentication is added.
+
+## Font dependency
+
+The UI uses **Vazirmatn**, loaded at runtime from Google Fonts via `@import`
+in `static/src/input.css`. If Google Fonts is unavailable the UI falls back to
+`Tahoma`/`Arial`; text remains readable. Self-hosting the font is a possible
+future improvement (it would require committing the font files).
 
 ## Overlap policy
 

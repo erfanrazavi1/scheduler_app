@@ -1,5 +1,9 @@
+import os
+import subprocess
+import sys
 from datetime import date, time, timedelta
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
@@ -409,3 +413,74 @@ class WeeklyScheduleViewTests(TestCase):
         delete_url = reverse("schedules:class_delete", args=[session.pk])
         response = self.client.post(delete_url, {"week": "2024-02-07"})
         self.assertIn("week=2024-02-03", response.url)
+
+
+class HealthCheckTests(TestCase):
+    def test_health_endpoint_returns_ok_json(self):
+        response = self.client.get(reverse("schedules:health"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual(response["Cache-Control"], "no-store")
+
+    def test_health_endpoint_is_public(self):
+        # No login required; must not touch the database.
+        self.assertEqual(self.client.get("/healthz/").status_code, 200)
+
+
+class ProductionSettingsTests(TestCase):
+    """Guards the environment-driven behaviour that VPS deployment relies on."""
+
+    def test_proxy_header_and_frame_options_are_always_set(self):
+        self.assertEqual(
+            settings.SECURE_PROXY_SSL_HEADER, ("HTTP_X_FORWARDED_PROTO", "https")
+        )
+        self.assertEqual(settings.X_FRAME_OPTIONS, "DENY")
+        self.assertTrue(settings.SECURE_CONTENT_TYPE_NOSNIFF)
+
+    def _run_settings_probe(self, extra_env):
+        env = os.environ.copy()
+        env.update(extra_env)
+        env.pop("DJANGO_SETTINGS_MODULE", None)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [p for p in (str(settings.BASE_DIR), env.get("PYTHONPATH", "")) if p]
+        )
+        # Import the settings module itself (no app population / DB needed).
+        code = (
+            "import importlib; "
+            "s = importlib.import_module('config.settings'); "
+            "print(int(s.DEBUG), int(s.SESSION_COOKIE_SECURE), "
+            "int(s.CSRF_COOKIE_SECURE), s.SECURE_HSTS_SECONDS)"
+        )
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            env=env,
+            cwd=str(settings.BASE_DIR),
+            capture_output=True,
+            text=True,
+        )
+
+    def test_production_mode_enables_secure_defaults(self):
+        result = self._run_settings_probe(
+            {"DJANGO_DEBUG": "0", "DJANGO_SECRET_KEY": "test-only-key"}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0 1 1 31536000")
+
+    def test_missing_secret_key_fails_when_debug_is_false(self):
+        env = os.environ.copy()
+        env["DJANGO_DEBUG"] = "0"
+        env.pop("DJANGO_SECRET_KEY", None)
+        env.pop("DJANGO_SETTINGS_MODULE", None)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [p for p in (str(settings.BASE_DIR), env.get("PYTHONPATH", "")) if p]
+        )
+        code = "import importlib; importlib.import_module('config.settings')"
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            env=env,
+            cwd=str(settings.BASE_DIR),
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("DJANGO_SECRET_KEY", result.stderr)

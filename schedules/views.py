@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.contrib import messages
-from django.http import HttpResponseNotAllowed
+from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -140,3 +140,11 @@ def class_delete(request, pk):
     session.delete()
     messages.success(request, f"کلاس «{title}» حذف شد.")
     return redirect(_week_redirect(week_start))
+
+
+def health(request):
+    """Liveness probe for Docker/orchestration.
+
+    Intentionally trivial: no database access, no secrets, no user data.
+    """
+    return JsonResponse({"status": "ok"}, headers={"Cache-Control": "no-store"})

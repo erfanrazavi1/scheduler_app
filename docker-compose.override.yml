@@ -1,0 +1,13 @@
+# Local development override.
+#
+# Docker Compose loads this file automatically for plain `docker compose up`,
+# so local development keeps its published port and debug mode. Production
+# explicitly selects only the base + prod files, so this override is ignored
+# there and the web container does NOT publish a host port.
+services:
+  web:
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_DEBUG: "1"
