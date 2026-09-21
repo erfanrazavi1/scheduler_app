@@ -19,6 +19,17 @@ services:
       --bind 0.0.0.0:8000
       --workers ${GUNICORN_WORKERS:-1}
       --timeout ${GUNICORN_TIMEOUT:-30}
+    # Production-only healthcheck. `healthcheck.test` is a Compose merge
+    # exception: this value replaces the base `test` (it is not appended),
+    # while interval/timeout/retries/start_period are inherited from the base
+    # file. The probe must send a Host that Django's strict ALLOWED_HOSTS
+    # accepts, because production allows only `scheduler.hesabinoo.ir`.
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import sys, urllib.request; request = urllib.request.Request('http://127.0.0.1:8000/healthz/', headers={'Host': 'scheduler.hesabinoo.ir'}); sys.exit(0 if urllib.request.urlopen(request, timeout=3).status == 200 else 1)"
     environment:
       DJANGO_DEBUG: "0"
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
